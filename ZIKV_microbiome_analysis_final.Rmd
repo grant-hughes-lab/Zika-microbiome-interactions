@@ -1,0 +1,2774 @@
+---
+title: "ZIKV-microbiome_analysis"
+author: "CCU, LEB, EH"
+date: "2025-01-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## About
+
+This is the code required to conduct all analsyes and generate all figures for Casado-Utrilla et al, 'Interactions of ZIKV with mosquito host-microbe holobionts result in different ZIKV infection dynamics within the same host species'.
+
+### load packages
+
+
+```{r}
+if(!requireNamespace("BiocManager")){
+install.packages("BiocManager")
+   }
+BiocManager::install("phyloseq")
+
+install.packages("remotes")
+remotes::install_github("microbiome/microbiome")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("ANCOMBC")
+
+install.packages('devtools')
+library(devtools)
+install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+
+library(readr)
+library(plyr)
+library(dplyr)
+library(phyloseq)
+library(ggplot2)
+library(vegan)
+library(microbiome)
+library(ANCOMBC)
+library(pairwiseAdonis)
+library(tibble)
+library(ggpubr)
+library(ggsignif)
+library(cowplot)
+library(plotly)
+library(heatmaply)
+library(RColorBrewer)
+library(dendextend)
+library(pheatmap)
+library(ranacapa)
+library(patchwork)
+library(png)
+library(ggplotify)
+library(ggtext) 
+```
+
+### load data
+
+```{r}
+# data input from CLC workbench which had previoulsy been used to perform QC, generate OTU table and assign taxonomy using the SILVA SSU v128 97%  database - further details in maunscript 
+tax_mat <- read_csv("./data_for_analysis/tax_mat.csv", show_col_types = FALSE)
+otu_mat <- read_csv("./data_for_analysis/otu_table.csv", show_col_types = FALSE)
+metadata <- read_csv("./data_for_analysis/metadata.csv", show_col_types = FALSE)
+
+# microbiome abundance data from quantification in the lab
+lab_abundance <- read_csv("./data_for_analysis/lab_abundance.csv", show_col_types = FALSE)
+field_abundance <- read_csv("./data_for_analysis/field_abundance.csv", show_col_types = FALSE)
+
+```
+
+### set colours
+
+To match unexposed, exposed and infected colours from setup diagram.
+
+```{r}
+colours <- c(
+  "Unexposed" = "#d6a5cb",
+  "Exposed" = "#bcda89",
+  "Infected" = "#7ea0d5"
+)
+
+```
+
+## Figure 1 - Viral infection of lab-reared mosquitoes and impact on the microbiome
+
+Fig 1A - illustration of the experimental setup.
+
+### Fig 1B and 1C
+
+Microbiome load in GALV-lab and RGV-lab, comparing unexposed, exposed and infected groups.
+
+
+```{r}
+
+my_comparisons <- list( c("Unexposed", "Exposed"), c("Exposed", "Infected"), c("Unexposed", "Infected"))
+
+
+
+###################################### GALVESTON LAB #####################################
+
+lab_abundance$ZIKV = factor(lab_abundance$ZIKV,
+                            levels = c('Unexposed', 'Exposed', 'Infected'), 
+                            ordered = TRUE)
+
+galveston_mb_load_plot = ggplot(subset(lab_abundance, Strain=="Galveston"),
+                                aes(x=ZIKV, y=Abundance)) +
+  geom_boxplot(fill=c('#d6a5cb', '#bcda89', '#7ea0d5'),
+               alpha=0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  scale_y_log10(breaks = c(0, 0.01, 0.1, 1, 10, 100, 1000, 10000), 
+                labels = c("0", "0.01", "0.1", "1", "10", "100", "1000", "10000"),
+                limits = c(0.001, 100000),
+                expand = c(0,0.2)) +
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5, 
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#d6a6d5', '#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Relative abundance (Log10)", title="Microbiome load - Galveston") + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill="white", colour = "white"),
+        strip.text = element_text(colour="black", size=15)) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     bracket.size = 0.5)
+  
+
+galveston_mb_load_plot
+
+
+######### Test for normality:
+
+### Unexposed
+temp <- subset(lab_abundance, Strain=="Galveston"&ZIKV=="Unexposed")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 suggesting distribution significantly different from normal.
+
+### Exposed
+temp <- subset(lab_abundance, Strain=="Galveston"&ZIKV=="Exposed")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 
+
+### Infected
+temp <- subset(lab_abundance, Strain=="Galveston"&ZIKV=="Infected")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 
+
+
+# no groups are normally distributed
+
+
+
+
+######################################## RGV LAB #########################################
+
+rgv_mb_load_plot = ggplot(subset(lab_abundance, Strain=="RGV"),
+                                aes(x=ZIKV, y=Abundance)) +
+  geom_boxplot(fill=c('#d6a5cb', '#bcda89', '#7ea0d5'),
+               alpha=0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  scale_y_log10(breaks = c(0, 0.01, 0.1, 1, 10, 100, 1000, 10000), 
+                labels = c("0", "0.01", "0.1", "1", "10", "100", "1000", "10000"),
+                limits = c(0.001, 100000),
+                expand = c(0,0.2)) +
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5, 
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#d6a5cb', '#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Relative abundance (Log10)", title="Microbiome load - RGV") + 
+  scale_x_discrete(labels = c("Unexposed", "Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill="white", colour = "white"),
+        strip.text = element_text(colour="black", size=15)) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     bracket.size = 0.5)
+
+rgv_mb_load_plot
+
+
+######### Test for normality:
+
+### Unexposed
+temp <- subset(lab_abundance, Strain=="RGV"&ZIKV=="Unexposed")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 
+
+### Exposed
+temp <- subset(lab_abundance, Strain=="RGV"&ZIKV=="Exposed")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 
+
+### Infected
+temp <- subset(lab_abundance, Strain=="RGV"&ZIKV=="Infected")
+
+ggdensity(temp$Abundance, 
+          main = "Density plot of abundance",
+          xlab = "microbiome abundance")
+
+ggqqplot(temp$Abundance)
+
+shapiro.test(temp$Abundance) # p < 0.05 
+
+# no groups normally distributed
+
+
+####################################### FIGURE 1B,C ######################################
+
+pl_1BC <- plot_grid(galveston_mb_load_plot, rgv_mb_load_plot, 
+          labels = c("B","C"), 
+          axis = "lrtb", 
+          align = "hv")
+pl_1BC
+
+```
+
+
+
+### Fig 1D and 1E
+
+Alpha Diversity in GALV-lab and RGV-lab, comparing unexposed, exposed and infected groups. 
+
+```{r}
+
+###################################### GALVESTON LAB #####################################
+
+# Create new metadata containing Galveston lab only:
+galveston_lab_metadata = filter(metadata, Location=="Galveston", Type=="Lab")
+
+# Create new OTU table containing id and Galveston lab samples:
+galveston_lab_otu = select(otu_mat, c(id, starts_with("Galveston") & contains("Lab")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+galveston_lab_otu <- galveston_lab_otu %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_metadata <- galveston_lab_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+galveston_lab_otu <- as.matrix(galveston_lab_otu)
+galveston_lab_tax_mat <- as.matrix(galveston_lab_tax_mat)
+
+# Create the phyloseq object:
+galveston_lab_OTU = otu_table(galveston_lab_otu, taxa_are_rows = TRUE)
+galveston_lab_TAX = tax_table(galveston_lab_tax_mat)
+galveston_lab_metadata = sample_data(galveston_lab_metadata)
+
+Galveston_lab <- phyloseq(galveston_lab_OTU, galveston_lab_TAX, galveston_lab_metadata)
+
+# Remove samples containing less than 2000 reads:
+Galveston_lab_filtered = prune_samples(sample_sums(Galveston_lab)>=2000, Galveston_lab) # 2 sample was removed (97 to 95 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Galveston_lab_filtered = prune_taxa(taxa_sums(Galveston_lab_filtered)>0, Galveston_lab_filtered) # 662 OTUs were removed (1443 to 781 OTUs)
+
+# Rarefying is not recommended because diversity indexes (like Shannon) already account for different sequencing depths
+
+
+galveston_lab_diversity_plot = plot_richness(Galveston_lab_filtered,
+                                             measures= "Shannon", 
+                                             x="ZIKV")
+
+galveston_lab_diversity_plot$layers = galveston_lab_diversity_plot$layers[-1]
+galveston_lab_diversity_plot$data$ZIKV = as.character(galveston_lab_diversity_plot$data$ZIKV)
+galveston_lab_diversity_plot$data$ZIKV = factor(galveston_lab_diversity_plot$data$ZIKV, 
+                                                levels = c("Unexposed", "Exposed", "Infected"))
+
+galveston_lab_diversity_plot
+
+galveston_lab_diversity_plot_final = galveston_lab_diversity_plot + 
+  geom_boxplot(fill=c('#d6a5cb', '#bcda89', '#7ea0d5'), 
+               alpha = 0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5,
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#d6a5cb', '#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Galveston") +
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,3)) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2.4, 2.6, 2.8),
+                     bracket.size = 0.5)
+
+galveston_lab_diversity_plot_final
+
+########### Test for normality:
+
+dat_galveston = data.frame(galveston_lab_diversity_plot$data)
+
+ggdensity(dat_galveston$value, 
+          main = "Density plot of shannon diversity scores",
+          xlab = "shannon diversity")
+
+ggqqplot(dat_galveston$value)
+
+shapiro.test(dat_galveston$value) # p < 0.05 
+
+
+
+###################################### RGV #####################################
+
+# Create new metadata containing RGV only:
+rgv_metadata = filter(metadata, Location=="RGV")
+
+# Create new OTU table containing id and RGV samples:
+rgv_otu = select(otu_mat, c(id, starts_with("Rio-Grande-Valley")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+rgv_otu <- rgv_otu %>%
+  tibble::column_to_rownames("id")
+
+rgv_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+rgv_metadata <- rgv_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+rgv_otu <- as.matrix(rgv_otu)
+rgv_tax_mat <- as.matrix(rgv_tax_mat)
+
+# Create the phyloseq object:
+rgv_OTU = otu_table(rgv_otu, taxa_are_rows = TRUE)
+rgv_TAX = tax_table(rgv_tax_mat)
+rgv_metadata = sample_data(rgv_metadata)
+
+RGV <- phyloseq(rgv_OTU, rgv_TAX, rgv_metadata)
+
+# Remove samples containing less than 2000 reads:
+RGV_filtered = prune_samples(sample_sums(RGV)>=2000, RGV) # 6 samples was removed (123 to 117 samples)
+
+# Remove OTUs that are not present in at least one sample:
+RGV_filtered = prune_taxa(taxa_sums(RGV_filtered)>0, RGV_filtered) # 637 OTUs were removed (1443 to 806 OTUs)
+
+
+rgv_diversity_plot = plot_richness(RGV_filtered, 
+                                   measures= "Shannon", 
+                                   x="ZIKV")
+rgv_diversity_plot$layers = rgv_diversity_plot$layers[-1]
+rgv_diversity_plot$data$ZIKV = as.character(rgv_diversity_plot$data$ZIKV)
+rgv_diversity_plot$data$ZIKV = factor(rgv_diversity_plot$data$ZIKV, 
+                                                levels = c("Unexposed", "Exposed", "Infected"))
+
+rgv_diversity_plot
+
+rgv_diversity_plot_final = rgv_diversity_plot + 
+  geom_boxplot(fill=c('#d6a5cb', '#bcda89', '#7ea0d5'), 
+               alpha = 0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5,
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#d6a5cb', '#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - RGV") + 
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,3)) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2.4, 2.6, 2.8),
+                     bracket.size = 0.5)
+
+rgv_diversity_plot_final
+
+
+
+########### Test for normality:
+
+dat_rgv = data.frame(rgv_diversity_plot$data)
+
+ggdensity(dat_rgv$value, 
+          main = "Density plot of shannon diversity scores",
+          xlab = "shannon diversity")
+
+ggqqplot(dat_rgv$value)
+
+shapiro.test(dat_rgv$value) # p < 0.05 
+
+
+
+###################################### FIGURE 1D, E #######################################
+
+plot_grid(galveston_lab_diversity_plot_final, rgv_diversity_plot_final, 
+          labels = c("D", "E"), 
+          axis = "lrtb", 
+          align = "hv")
+
+
+```
+
+
+### Fig 1F and 1G
+
+Beta Diversity in GALV-lab and RGV-lab, comparing unexposed, exposed and infected groups.
+
+```{r}
+
+###################################### GALVESTON LAB #####################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+galveston_lab_bray_dist = phyloseq::distance(Galveston_lab_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+galveston_lab_ordination = ordinate(Galveston_lab_filtered, method="NMDS", distance=galveston_lab_bray_dist)
+
+# changing the ZIKV categories to factors so I can speculate the order the the legend entries are shown
+sample_data(Galveston_lab_filtered)$ZIKV <- factor(sample_data(Galveston_lab_filtered)$ZIKV, 
+                                         levels = c("Unexposed", "Exposed", "Infected"))
+
+galveston_beta_diversity_plot = plot_ordination(Galveston_lab_filtered, 
+                                           galveston_lab_ordination, 
+                                           color="ZIKV") 
+
+galveston_beta_diversity_plot <- galveston_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = colours)+
+  scale_color_manual(values = colours)+
+  ggtitle("Beta diversity - Galveston")+
+  annotate("text", x=1.1, y=-1.8, color="black", size =3.5, label="p = 0.125") +
+  theme_bw()
+galveston_beta_diversity_plot$layers <- galveston_beta_diversity_plot$layers[-1]
+
+
+
+# Run Adonis test
+
+galv_lab_metadata <- as.data.frame(as.matrix(sample_data(Galveston_lab_filtered))) # adonis2 expects a plain data.frame, when simply extracted as sample_data from phyloseq object it has additional attributes (slots) that are not compatible with adonis2. Therefore needs converting to astandard dataframe
+
+adonis_result <- adonis2(
+  galveston_lab_bray_dist ~ ZIKV, 
+  data = galv_lab_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.125 so there are no differences in composition between the three groups, no need to do pairwise testing
+
+
+
+
+
+########################################## RGV ###########################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+rgv_bray_dist = phyloseq::distance(RGV_filtered, method="bray") 
+rgv_ordination = ordinate(RGV_filtered, method="NMDS", distance=rgv_bray_dist)
+
+sample_data(RGV_filtered)$ZIKV <- factor(sample_data(RGV_filtered)$ZIKV, 
+                                         levels = c("Unexposed", "Exposed", "Infected"))
+
+
+rgv_beta_diversity_plot = plot_ordination(RGV_filtered, rgv_ordination, color="ZIKV")
+rgv_beta_diversity_plot <- rgv_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = colours)+
+  scale_color_manual(values = colours)+
+  ggtitle("Beta diversity - RGV")+
+  annotate("text", x=1.8, y=-1.8, color="black", size =3.5, label="p = 0.001") +
+  theme_bw()
+rgv_beta_diversity_plot$layers <- rgv_beta_diversity_plot$layers[-1]
+
+
+# Run Adonis test
+RGV_lab_metadata <- as.data.frame(as.matrix(sample_data(RGV_filtered)))  
+
+RGV_adonis_result <- adonis2(
+  rgv_bray_dist ~ ZIKV, 
+  data = RGV_lab_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+print(RGV_adonis_result)
+# p 0.001 ***
+
+
+pairwise.adonis(rgv_bray_dist, sample_data(RGV_filtered)$ZIKV, p.adjust.m = "bonferroni") # This performs pairwise comparisons between the three treatments (Unexposed, Exposed and Infected)
+# p.adj=1.00 Exposed vs Infected
+# p.adj=0.003 unexposed vs Infected (*)
+# p.adj=0.009 unexposed vs Exposed (*)
+
+
+
+###################################### FIGURE 1E,F #######################################
+
+
+ggpubr::ggarrange(galveston_beta_diversity_plot, 
+          rgv_beta_diversity_plot,
+          labels = c("E", "F"), 
+          ncol = 2, nrow = 1, common.legend = TRUE, legend="bottom")
+
+
+
+```
+
+### Fig 1 all together
+
+This needs the setup Fig created by cintia put at the top - I did this in Illustrator
+
+```{r}
+
+#pdf("fig1_new_colours.pdf", width=6, height=9)
+figure1 <- ggpubr::ggarrange(galveston_mb_load_plot,
+          rgv_mb_load_plot,
+          galveston_lab_diversity_plot_final, 
+          rgv_diversity_plot_final,
+          galveston_beta_diversity_plot, 
+          rgv_beta_diversity_plot,
+          labels = c("B", "C", "D", "E", "F", "G"), 
+          widths = c(1, 1),
+          ncol = 2, nrow = 3, common.legend = TRUE, legend="bottom")
+figure1
+#dev.off()
+```
+
+
+### Compound Figure 1
+
+```{r}
+Fig1A <- readPNG("manuscript diagram-temp2.png", native=T)
+
+pdf("Figure1.pdf", width = 7, height = 12)
+wrap_elements(Fig1A) / figure1 + plot_annotation(title = 'A', theme = theme(plot.title = element_text(face="bold"))) + plot_layout(heights = c(1, 4))
+dev.off()
+
+```
+
+
+## Figure 2 - Comparison of microbiome diversity between Ae. aegypti laboratory lines
+
+### Figure 2AB
+
+alpha and beta diversity of unexposed mosquitoes belonging to galv-lab and rgv-lab
+
+```{r}
+##########################################################################################
+############################ BLOODFED / UNEXPOSED  ####################################
+########################################################################################## 
+
+
+# Create new metadata containing Bloodfed only:
+bloodfed_lab_metadata = filter(metadata, Type=="Lab", ZIKV=="Unexposed")
+
+# Create new OTU table containing id and bloodfed samples:
+bloodfed_lab_otu = select(otu_mat, c(id, contains("Lab") & contains("Mock")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+bloodfed_lab_otu <- bloodfed_lab_otu %>%
+  tibble::column_to_rownames("id")
+
+bloodfed_lab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+bloodfed_lab_metadata <- bloodfed_lab_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+bloodfed_lab_otu <- as.matrix(bloodfed_lab_otu)
+bloodfed_lab_tax_mat <- as.matrix(bloodfed_lab_tax_mat)
+
+# Create the phyloseq object:
+bloodfed_lab_OTU = otu_table(bloodfed_lab_otu, taxa_are_rows = TRUE)
+bloodfed_lab_TAX = tax_table(bloodfed_lab_tax_mat)
+bloodfed_lab_metadata = sample_data(bloodfed_lab_metadata)
+
+bloodfed_lab <- phyloseq(bloodfed_lab_OTU, bloodfed_lab_TAX, bloodfed_lab_metadata)
+
+# Remove samples containing less than 2000 reads:
+bloodfed_lab_filtered = prune_samples(sample_sums(bloodfed_lab)>=2000, bloodfed_lab) 
+
+# Remove OTUs that are not present in at least one sample:
+bloodfed_lab_filtered = prune_taxa(taxa_sums(bloodfed_lab_filtered)>0, bloodfed_lab_filtered) 
+
+
+################################## ALPHA DIVERSITY #######################################
+
+my_comparisons = list(c("Galveston", "RGV"))
+
+bloodfed_lab_diversity_plot = plot_richness(bloodfed_lab_filtered, 
+                                             measures= "Shannon", 
+                                             x="Location")
+bloodfed_lab_diversity_plot$layers = bloodfed_lab_diversity_plot$layers[-1]
+
+bloodfed_lab_diversity_plot_final = bloodfed_lab_diversity_plot + 
+  geom_boxplot(fill=c('plum3', 'darkmagenta'), 
+               alpha = 0.2, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=3,
+             aes(color = Location, alpha=0.5)) + 
+  scale_colour_manual(values = c('plum3', 'darkmagenta')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Unexposed") +
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,3)) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=5,
+                     label.y = c(2.4, 2.6, 2.8),
+                     bracket.size = 0.5)
+
+bloodfed_lab_diversity_plot_final
+
+
+################################### BETA DIVERSITY #######################################
+
+bloodfed_lab_bray_dist = phyloseq::distance(bloodfed_lab_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+bloodfed_lab_ordination = ordinate(bloodfed_lab_filtered, method="NMDS", distance=bloodfed_lab_bray_dist)
+
+bloodfed_beta_diversity_plot = plot_ordination(bloodfed_lab_filtered, 
+                                               bloodfed_lab_ordination, 
+                                              color="Location") 
+
+
+bloodfed_beta_diversity_plot <- bloodfed_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  #legend.position = "none" +
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = c('plum3', 'darkmagenta'))+
+  scale_color_manual(values = c('plum3', 'darkmagenta'))+
+  ggtitle("Beta diversity - Unexposed")+
+  annotate("text", x=1.1, y=-1.8, color="black", size =3.5, label="p = 0.006") + labs(color = "Lab line") +
+  theme(legend.title = element_text(color = "black", size = 10),
+        legend.text = element_text(color = "black")) + 
+  guides(fill="none") +
+  theme_bw()
+
+  #bloodfed_beta_diversity_plot$layers <- bloodfed_beta_diversity_plot$layers[-1]
+
+
+bloodfed_beta_diversity_plot
+
+
+
+# Run Adonis test
+
+bloodfed_metadata <- as.data.frame(as.matrix(sample_data(bloodfed_lab_filtered))) # adonis2 expects a plain data.frame, when simply extracted as sample_data from phyloseq object it has additional attributes (slots) that are not compatible with adonis2. Therefore needs converting to astandard dataframe
+
+adonis_result <- adonis2(
+  bloodfed_lab_bray_dist ~ Location, 
+  data = bloodfed_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.006 although result is statistically significant, no need to do pairwise testing as only 2 groups are being compared
+
+
+
+
+########### fig 2AB #####################
+
+
+
+#pdf("fig2AB_new_colours.pdf", width=6, height=4)
+figure2AB <- ggpubr::ggarrange(bloodfed_lab_diversity_plot_final,
+          bloodfed_beta_diversity_plot,
+          labels = c("AUTO"), 
+          widths = c(1, 1),
+          ncol = 2, nrow = 1, common.legend = TRUE, legend="bottom")
+figure2AB
+#dev.off()
+
+
+```
+
+
+
+### Figure 2CD
+
+relative abundance of galv=lab and RGV-lab individuals in the 3 groups.
+
+```{r}
+################################### GALVESTON LAB ########################################
+
+# Create new metadata containing Galveston lab only:
+galveston_lab_metadata = filter(metadata, Location=="Galveston", Type=="Lab")
+
+# Create new OTU table containing id and Galveston lab samples:
+galveston_lab_otu = select(otu_mat, c(id, starts_with("Galveston") & contains("Lab")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+galveston_lab_otu <- galveston_lab_otu %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_metadata <- galveston_lab_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+galveston_lab_otu <- as.matrix(galveston_lab_otu)
+galveston_lab_tax_mat <- as.matrix(galveston_lab_tax_mat)
+
+# Create the phyloseq object:
+galveston_lab_OTU = otu_table(galveston_lab_otu, taxa_are_rows = TRUE)
+galveston_lab_TAX = tax_table(galveston_lab_tax_mat)
+galveston_lab_metadata = sample_data(galveston_lab_metadata)
+
+Galveston_lab <- phyloseq(galveston_lab_OTU, galveston_lab_TAX, galveston_lab_metadata)
+
+# Remove samples containing less than 2000 reads:
+Galveston_lab_filtered = prune_samples(sample_sums(Galveston_lab)>=2000, Galveston_lab) # 2 sample was removed (97 to 95 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Galveston_lab_filtered = prune_taxa(taxa_sums(Galveston_lab_filtered)>0, Galveston_lab_filtered) # 662 OTUs were removed (1443 to 781 OTUs)
+
+# Classify the taxa that represent less than 0.5 % of the reads and plot the relative abundance of OTUs:
+phy_galveston_lab = transform_sample_counts(Galveston_lab_filtered, function(x) x/sum(x)) # Phyloseq object with abundance in percentage
+glom_galveston_lab = tax_glom(phy_galveston_lab, taxrank = "Family")                      # Agglomerate Taxa by Family
+dat_galveston_lab = psmelt(glom_galveston_lab)                                            # Create data frame from phyloseq object glom
+dat_galveston_lab$Family = as.character(dat_galveston_lab$Family)                         # Convert Family to a character vector
+
+medians_galveston_lab = ddply(dat_galveston_lab, ~Family, function(x) c(median=median(x$Abundance))) # Group dataframe by Family and calculate median relative abundance
+Others_galveston_lab = medians_galveston_lab[medians_galveston_lab$median<=0.001,]$Family                                 # Find Families whose relative abundance is less than 0.1%
+dat_galveston_lab[dat_galveston_lab$Family %in% Others_galveston_lab,]$Family = "Others"                           # Rename the families whose abundance is less than 0.1% to "Others"
+
+galveston_lab_abundance = ggplot(dat_galveston_lab, aes(x=sample, y=Abundance, fill=Family)) + 
+  geom_bar (stat="identity", position="stack") +
+  scale_fill_manual(values = c('mediumseagreen', 'mediumvioletred',  'plum',
+                               'lightgoldenrod2', 'lightsalmon','grey', 'navy')) +
+  facet_grid(~factor(ZIKV, levels = c("Unexposed", "Exposed", "Infected")), 
+             scales="free", switch="x")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border = element_blank(), 
+        panel.grid=element_blank(),
+        panel.background = element_blank(),
+        #legend.position = "none",
+        strip.background = element_blank(),
+        plot.title = element_text(colour="black", size=15, face="bold", hjust = 0.5), 
+        legend.key.size = unit(0.2, 'cm'), 
+        legend.position="bottom") +
+  labs(title="Galveston", y="relative abundance", x="")
+
+galveston_lab_abundance
+
+
+
+######################################## RGV #############################################
+
+# Create new metadata containing RGV only:
+rgv_metadata = filter(metadata, Location=="RGV")
+
+# Create new OTU table containing id and Austin samples:
+rgv_otu = select(otu_mat, c(id, starts_with("Rio-Grande-Valley")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+rgv_otu <- rgv_otu %>%
+  tibble::column_to_rownames("id")
+
+rgv_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+rgv_metadata <- rgv_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+rgv_otu <- as.matrix(rgv_otu)
+rgv_tax_mat <- as.matrix(rgv_tax_mat)
+
+# Create the phyloseq object:
+rgv_OTU = otu_table(rgv_otu, taxa_are_rows = TRUE)
+rgv_TAX = tax_table(rgv_tax_mat)
+rgv_metadata = sample_data(rgv_metadata)
+
+RGV <- phyloseq(rgv_OTU, rgv_TAX, rgv_metadata)
+
+# Remove samples containing less than 2000 reads:
+RGV_filtered = prune_samples(sample_sums(RGV)>=2000, RGV) # 6 samples was removed (123 to 117 samples)
+
+# Remove OTUs that are not present in at least one sample:
+RGV_filtered = prune_taxa(taxa_sums(RGV_filtered)>0, RGV_filtered) # 637 OTUs were removed (1443 to 806 OTUs)
+
+# Classify the taxa that represent less than 0.5 % of the reads and plot the relative abundance of OTUs:
+phy_rgv = transform_sample_counts(RGV_filtered, function(x) x/sum(x)) # Phyloseq object with abundance in percentage
+glom_rgv = tax_glom(phy_rgv, taxrank = "Family")                      # Agglomerate Taxa by Family
+dat_rgv = psmelt(glom_rgv)                                            # Create data frame from phyloseq object glom
+dat_rgv$Family = as.character(dat_rgv$Family)                         # Convert Family to a character vector
+
+medians_rgv = ddply(dat_rgv, ~Family, function(x) c(median=median(x$Abundance))) # Group dataframe by Family and calculate median relative abundance
+Others_rgv = medians_rgv[medians_rgv$median<=0.001,]$Family                                 # Find Families whose relative abundance is less than 0.1%
+dat_rgv[dat_rgv$Family %in% Others_rgv,]$Family = "Others"                           # Rename the families whose abundance is less than 0.1% to "Others"
+
+rgv_abundance = ggplot(dat_rgv, aes(x=sample, y=Abundance, fill=Family)) + 
+  geom_bar (stat="identity", position="stack") +
+  scale_fill_manual(values = c('mediumseagreen', 'mediumvioletred',  'plum',
+                               'lightgoldenrod2', 'lightsalmon', 'navy')) +
+  facet_grid(~factor(ZIKV, levels = c("Unexposed", "Exposed", "Infected")), 
+             scales="free", switch="x") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border = element_blank(), 
+        panel.grid=element_blank(),
+        panel.background = element_blank(),
+        #legend.position = "none",
+        strip.background = element_blank(),
+        plot.title = element_text(colour="black", size=15, face="bold", hjust = 0.5),
+        legend.key.size = unit(0.2, 'cm'), 
+        legend.position="bottom") +
+  labs(title="RGV", y="relative abundance", x="")
+
+rgv_abundance
+
+
+################################### ALL (FIGURE 2CD) ####################################
+
+#legend_S1 = get_legend(galveston_lab_abundance + 
+                         #theme(legend.position="bottom") + 
+                         #theme(legend.title = element_text(size=14, face="bold")) +
+                         #theme(legend.text = element_text(size=8))
+                      # )
+
+plots_S1 = plot_grid(galveston_lab_abundance,
+                  rgv_abundance,
+                  labels = c("C", "D"),
+                  nrow = 2,
+                  ncol = 1,
+                  axis = "lr", 
+                  align = "hv")
+
+#fig2CD <- plot_grid(plots_S1,
+          #legend_S1,
+          #nrow = 2,
+          #ncol = 1,
+          #rel_heights = c(8,1))
+
+#fig2CD
+
+```
+
+
+
+### Figure 2E
+
+
+Prepare the data and carry out differential abundance analysis with ancombc
+
+```{r, warning=FALSE}
+# new script to recreate cintia's heatmap.csv as I can't find a script for that
+# this will extract the data from the two lab lines, then identify differentially abundant taxa between lines, for each of the three ZIKV conditions (unexposed, exposed, infected) and present them as  logfold changes in galv-lab relative to RGV-lab.
+
+# Create new OTU table and metadata containing lab samples:
+lab_metadata = filter(metadata, Type=="Lab")
+
+lab_otu = select(otu_mat, c(id, contains("Lab")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+lab_otu <- lab_otu %>%
+  tibble::column_to_rownames("id")
+
+lab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+lab_metadata <- lab_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+lab_otu <- as.matrix(lab_otu)
+lab_tax_mat <- as.matrix(lab_tax_mat)
+
+# Create the phyloseq object:
+lab_OTU = otu_table(lab_otu, taxa_are_rows = TRUE)
+lab_TAX = tax_table(lab_tax_mat)
+lab_metadata = sample_data(lab_metadata)
+
+ps_lab <- phyloseq(lab_OTU, lab_TAX, lab_metadata)
+
+# Remove samples containing less than 2000 reads:
+lab_filtered = prune_samples(sample_sums(ps_lab)>=2000, ps_lab) 
+
+# Remove OTUs that are not present in at least one sample:
+lab_filtered = prune_taxa(taxa_sums(lab_filtered)>0, lab_filtered) 
+
+
+#### =============== lab ANCOM-BC =================== ###
+
+# Group taxa by Genus level:
+lab_genera = aggregate_taxa(lab_filtered, "Genus")
+
+# ANCOM-BC cannot perform pairwise comparison so we need to perfom ANCOM separately for each pair of treatments:
+
+# Create 3 phyloseq objects for the three treatment comparisons:
+unex_genera_GvR = subset_samples(lab_genera, ZIKV=="Unexposed")
+exp_genera_GvR = subset_samples(lab_genera, ZIKV=="Exposed")
+inf_genera_GvR = subset_samples(lab_genera, ZIKV=="Infected")
+
+
+#  ---------   ANCOM-BC Unexposed:  Galv vs RGV -------- #
+
+ancom_unex_GvR = ancombc(phyloseq=unex_genera_GvR, formula="Location", 
+                        p_adj_method = "bonferroni", 
+                        lib_cut = 0, 
+                        group = "Location", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+ancom_unex_GvR_results = data.frame(ancom_unex_GvR$res)
+
+ancom_unex_GvR_sig_results = ancom_unex_GvR_results %>%
+  filter(diff_abn.LocationRGV=="TRUE")
+
+# subset and reformat the table to extract taxa and logFC data in RGV
+ancom_unex_GvR_sig_results = ancom_unex_GvR_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "Unexposed" = lfc.LocationRGV)
+
+
+
+
+#  ---------   ANCOM-BC Exposed:  Galv vs RGV -------- #
+
+ancom_exp_GvR = ancombc(phyloseq=exp_genera_GvR, formula="Location", 
+                        p_adj_method = "bonferroni", 
+                        lib_cut = 0, 
+                        group = "Location", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+ancom_exp_GvR_results = data.frame(ancom_exp_GvR$res)
+
+ancom_exp_GvR_sig_results = ancom_exp_GvR_results %>%
+  filter(diff_abn.LocationRGV=="TRUE")
+
+ancom_exp_GvR_sig_results = ancom_exp_GvR_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "Exposed" = lfc.LocationRGV)
+
+
+#  ---------   ANCOM-BC Infected:  Galv vs RGV -------- #
+
+ancom_inf_GvR = ancombc(phyloseq=inf_genera_GvR, formula="Location", 
+                        p_adj_method = "bonferroni", 
+                        lib_cut = 0, 
+                        group = "Location", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+ancom_inf_GvR_results = data.frame(ancom_inf_GvR$res)
+
+ancom_inf_GvR_sig_results = ancom_inf_GvR_results %>%
+  filter(diff_abn.LocationRGV=="TRUE")
+
+ancom_inf_GvR_sig_results = ancom_inf_GvR_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "Infected" = lfc.LocationRGV)
+ 
+
+
+# now combine the three dataframes
+
+combined_df <- merge(ancom_unex_GvR_sig_results, ancom_exp_GvR_sig_results, by = "Taxa", all = TRUE)
+combined_df <- merge(combined_df, ancom_inf_GvR_sig_results, by = "Taxa", all = TRUE)
+
+# Replace NAs with 0
+combined_df[is.na(combined_df)] <- 0
+
+
+#clean up taxa names for the long ones
+# long way round doing them individually but works
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Bacteria_Bacteroidetes_Sphingobacteriia_Sphingobacteriales_Chitinophagaceae_uncultured", 
+  "Chitinophagaceae", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Azospirillum sp. enrichment culture clone yan50", 
+  "Azospirillum", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Bacteria_Firmicutes_Clostridia_Clostridiales_Lachnospiraceae_uncultured", 
+  "Lachnospiraceae", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacteriales_Enterobacteriaceae_Ambiguous_taxa", 
+  "Enterobacteriaceae", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Bacteria_Proteobacteria_Gammaproteobacteria_Xanthomonadales_Solimonadaceae_uncultured", 
+  "Solimonadaceae", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Bacteria_Bacteroidetes_Bacteroidia_Bacteroidales_Bacteroidales S24-7 group_uncultured bacterium", 
+  "Bacteroidales", 
+  combined_df$Taxa
+)
+
+combined_df$Taxa <- ifelse(
+  combined_df$Taxa == "Lachnospiraceae UCG-006", 
+  "Lachnospiraceae", 
+  combined_df$Taxa
+)
+
+
+combined_df <- combined_df %>%
+  group_by(Taxa) %>%
+  summarise(across(everything(), sum, na.rm = TRUE))
+
+
+combined_df <- column_to_rownames(combined_df, var = "Taxa")
+
+#
+
+# this dataframe can now be used to create the heatmap
+
+```
+
+Create heatmap. I have redone this using pheatmap instead of heatmaply which Cintia used originally as with heatmaply I couldn't work out how to remove dendograms 
+
+```{r}
+
+# Perform clustering
+row_clustering <- hclust(dist(combined_df))  # Hierarchical clustering on rows
+
+
+# Define custom breaks
+custom_min <- -2.8  # Lower bound of the color scale, decided by looking at the data values
+custom_max <- 2.8   # Upper bound of the color scale
+
+# Create breaks with your custom range
+breaks <- seq(custom_min, custom_max, length.out = 101)  # 100 breaks between -2.8 and 2.8
+
+# Define colours
+custom_colours <- colorRampPalette(c("navy", "#B8DDF7", "white", "#F8BCA4", "#9c0005"))(100)
+
+# Ensure zero maps explicitly to white
+zero_index <- which.min(abs(breaks))  # Find index closest to zero
+custom_colours[zero_index] <- "white"  # Set zero explicitly to white
+
+# Rownames italics
+newnames <- lapply(
+  rownames(combined_df),
+  function(x) bquote(italic(.(x))))
+
+#Rowname size
+fontsize_row = 10 - nrow(combined_df) / 15
+
+# Create heatmap
+fig2e <- pheatmap(
+  combined_df,
+  cluster_rows = row_clustering,  # Apply row clustering
+  cluster_cols = FALSE,           # No column clustering
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  color = custom_colours,          # Apply custom colors
+  breaks = breaks,                # Apply custom breaks
+  scale = "none",
+  border_color = NA,
+  treeheight_row = 0 ,           # Hide row dendrogram
+  fontsize_row = fontsize_row, 
+  labels_row = as.expression(newnames),
+  main = "Logfold change in RGV") 
+
+fig2e
+
+
+
+```
+
+
+### Fig 2 - all together 
+
+
+
+```{r}
+
+figure2e <- as.ggplot(fig2e)
+
+pdf("Figure2.pdf", width = 7, height = 15)
+(bloodfed_lab_diversity_plot_final + bloodfed_beta_diversity_plot) / galveston_lab_abundance / rgv_abundance / figure2e + plot_layout(heights = c(1, 1.2, 1.2, 2.5)) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(face="bold"))
+dev.off()
+
+
+```
+
+
+
+## Fig 3 - Differential abundance of microbes based on infection status
+
+### First generate the data
+
+First, Rio Grande Valley - Lab 
+
+First run ancombc for each of the pairwise comparisons for RGV-lab
+
+```{r}
+
+############################## RIO GRANDE VALLEY ####################################
+
+# prepare phyloseq obj
+
+# Create new metadata containing RGV only:
+rgv_metadata = filter(metadata, Location=="RGV")
+
+# Create new OTU table containing id and Austin samples:
+rgv_otu = select(otu_mat, c(id, starts_with("Rio-Grande-Valley")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+rgv_otu <- rgv_otu %>%
+  tibble::column_to_rownames("id")
+
+rgv_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+rgv_metadata <- rgv_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+rgv_otu <- as.matrix(rgv_otu)
+rgv_tax_mat <- as.matrix(rgv_tax_mat)
+
+# Create the phyloseq object:
+rgv_OTU = otu_table(rgv_otu, taxa_are_rows = TRUE)
+rgv_TAX = tax_table(rgv_tax_mat)
+rgv_metadata = sample_data(rgv_metadata)
+
+RGV <- phyloseq(rgv_OTU, rgv_TAX, rgv_metadata)
+
+# Remove samples containing less than 2000 reads:
+RGV_filtered = prune_samples(sample_sums(RGV)>=2000, RGV) # 6 samples was removed (123 to 117 samples)
+
+# Remove OTUs that are not present in at least one sample:
+RGV_filtered = prune_taxa(taxa_sums(RGV_filtered)>0, RGV_filtered) # 637 OTUs were removed (1443 to 806 OTUs)
+
+
+
+### =============== RGV ANCOM-BC =================== ###
+
+# Group taxa by Genus level:
+RGV_genera = aggregate_taxa(RGV_filtered, "Genus")
+
+# ANCOM-BC cannot perform pairwise comparison so we need to perfom ANCOM separately for each pair of treatments:
+
+# Create 3 phyloseq objects for the three treatment comparisons:
+RGV_genera_IvE = subset_samples(RGV_genera, ZIKV=="Infected"|ZIKV=="Exposed")
+RGV_genera_IvU = subset_samples(RGV_genera, ZIKV=="Infected"|ZIKV=="Unexposed")
+RGV_genera_UvE = subset_samples(RGV_genera, ZIKV=="Unexposed"|ZIKV=="Exposed")
+
+
+#  ---------   ANCOM-BC Infected vs Exposed:   -------- #
+
+RGV_ancom_IvE = ancombc(phyloseq=RGV_genera_IvE, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+RGV_ancom_IvE_results = data.frame(RGV_ancom_IvE$res)
+
+RGV_ancom_IvE_sig_results = RGV_ancom_IvE_results %>%
+  filter(diff_abn.ZIKVInfected=="TRUE")
+
+# No significant ANCOM results between Infected and Exposed mosquitoes
+
+
+
+#  ---------   ANCOM-BC Infected vs Unexposed:   -------- #
+
+RGV_ancom_IvU = ancombc(phyloseq=RGV_genera_IvU, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+RGV_ancom_IvU_results = data.frame(RGV_ancom_IvU$res)
+
+RGV_ancom_IvU_sig_results = RGV_ancom_IvU_results %>%
+  filter(diff_abn.ZIKVUnexposed=="TRUE")
+# 12 significant ANCOM results between Infected and Exposed mosquitoes
+
+# Reformat the table for further representation:
+RGV_ancom_IvU_sig_results = RGV_ancom_IvU_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "logFC" = lfc.ZIKVUnexposed, 
+         "SE" = se.ZIKVUnexposed, 
+         "W statistic" = W.ZIKVUnexposed, 
+         "p value" = p_val.ZIKVUnexposed,
+         "q value" = q_val.ZIKVUnexposed,
+         "q<0.05" = diff_abn.ZIKVUnexposed) %>%
+  mutate(CI=SE*1.96, 
+         color = ifelse(logFC>0, "Infected", "Unexposed")) #%>%
+  #rownames_to_column(var="Taxa")
+
+#write.csv(RGV_ancom_IvU_sig_results, "RGV_ancom_IvU_sig_results.csv")
+
+
+
+#  ---------  ANCOM-BC Unexposed vs Exposed:   -------- #
+
+RGV_ancom_UvE = ancombc(phyloseq=RGV_genera_UvE, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+RGV_ancom_UvE_results = data.frame(RGV_ancom_UvE$res)
+
+RGV_ancom_UvE_sig_results = RGV_ancom_UvE_results %>%
+  filter(diff_abn.ZIKVUnexposed=="TRUE")
+# 8 significant ANCOM results between Infected and Exposed mosquitoes
+
+# Reformat the table for further representation:
+RGV_ancom_UvE_sig_results = RGV_ancom_UvE_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "logFC" = lfc.ZIKVUnexposed, 
+         "SE" = se.ZIKVUnexposed, 
+         "W statistic" = W.ZIKVUnexposed, 
+         "p value" = p_val.ZIKVUnexposed,
+         "q value" = q_val.ZIKVUnexposed,
+         "q<0.05" = diff_abn.ZIKVUnexposed) %>%
+  mutate(CI=SE*1.96, 
+         color = ifelse(logFC>0, "Unexposed", "Exposed")) #%>%
+  #rownames_to_column(var="Taxa")
+
+#write.csv(RGV_ancom_UvE_sig_results, "RGV_ancom_UvE_sig_results.csv")
+
+```
+
+
+Next, Galveston - Lab 
+
+First run ancombc for each of the pairwise comparisons for Galv-lab
+
+
+```{r}
+
+
+############################## GALVESTON LAB ####################################
+
+# Create new metadata containing Austin only:
+galveston_lab_metadata = filter(metadata, Location=="Galveston", Type=="Lab")
+
+# Create new OTU table containing id and Austin samples:
+galveston_lab_otu = select(otu_mat, c(id, starts_with("Galveston") & contains("Lab")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+galveston_lab_otu <- galveston_lab_otu %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+galveston_lab_metadata <- galveston_lab_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+galveston_lab_otu <- as.matrix(galveston_lab_otu)
+galveston_lab_tax_mat <- as.matrix(galveston_lab_tax_mat)
+
+# Create the phyloseq object:
+galveston_lab_OTU = otu_table(galveston_lab_otu, taxa_are_rows = TRUE)
+galveston_lab_TAX = tax_table(galveston_lab_tax_mat)
+galveston_lab_metadata = sample_data(galveston_lab_metadata)
+
+Galveston_lab <- phyloseq(galveston_lab_OTU, galveston_lab_TAX, galveston_lab_metadata)
+
+# Remove samples containing less than 2000 reads:
+Galveston_lab_filtered = prune_samples(sample_sums(Galveston_lab)>=2000, Galveston_lab) # 2 sample was removed (97 to 95 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Galveston_lab_filtered = prune_taxa(taxa_sums(Galveston_lab_filtered)>0, Galveston_lab_filtered) # 662 OTUs were removed (1443 to 781 OTUs)
+
+
+
+### =============== GALVESTON LAB ANCOM-BC =================== ###
+
+# Group taxa by Genus level:
+Galveston_lab_genera = aggregate_taxa(Galveston_lab_filtered, "Genus")
+
+# ANCOM-BC cannot perform pairwise comparison so we need to perfom ANCOM separately for each pair of treatments:
+
+# Create 3 phyloseq objects for the three treatment comparisons:
+Galveston_lab_genera_IvE = subset_samples(Galveston_lab_genera, ZIKV=="Infected"|ZIKV=="Exposed")
+Galveston_lab_genera_IvU = subset_samples(Galveston_lab_genera, ZIKV=="Infected"|ZIKV=="Unexposed")
+Galveston_lab_genera_UvE = subset_samples(Galveston_lab_genera, ZIKV=="Unexposed"|ZIKV=="Exposed")
+
+
+
+#  ---------   ANCOM-BC Infected vs Exposed:   -------- #
+
+Galveston_lab_ancom_IvE = ancombc(phyloseq=Galveston_lab_genera_IvE, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+Galveston_lab_ancom_IvE_results = data.frame(Galveston_lab_ancom_IvE$res)
+
+Galveston_lab_ancom_IvE_sig_results = Galveston_lab_ancom_IvE_results %>%
+  filter(diff_abn.ZIKVInfected=="TRUE")
+
+
+
+# 3 ANCOM significant results between Exposed and Infected mosquitoes
+
+# Reformat the table for further representation:
+Galveston_lab_ancom_IvE_sig_results = Galveston_lab_ancom_IvE_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "logFC" = lfc.ZIKVInfected, 
+         "SE" = se.ZIKVInfected, 
+         "W statistic" = W.ZIKVInfected, 
+         "p value" = p_val.ZIKVInfected,
+         "q value" = q_val.ZIKVInfected,
+         "q<0.05" = diff_abn.ZIKVInfected) %>%
+  mutate(CI=SE*1.96, 
+         color = ifelse(logFC>0, "Infected", "Exposed")) #%>%
+  #rownames_to_column(var="Taxa")
+
+#write.csv(Galveston_lab_ancom_IvE_sig_results, "Galveston_lab_ancom_IvE_sig_results.csv")
+
+
+
+#  ---------   ANCOM-BC Infected vs Unxposed:   -------- #
+
+Galveston_lab_ancom_IvU = ancombc(phyloseq=Galveston_lab_genera_IvU, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+Galveston_lab_ancom_IvU_results = data.frame(Galveston_lab_ancom_IvU$res)
+
+Galveston_lab_ancom_IvU_sig_results = Galveston_lab_ancom_IvU_results %>%
+  filter(diff_abn.ZIKVUnexposed=="TRUE")
+# 15 significant ANCOM results between Infected and Exposed mosquitoes
+
+# Reformat the table for further representation:
+Galveston_lab_ancom_IvU_sig_results = Galveston_lab_ancom_IvU_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "logFC" = lfc.ZIKVUnexposed, 
+         "SE" = se.ZIKVUnexposed, 
+         "W statistic" = W.ZIKVUnexposed, 
+         "p value" = p_val.ZIKVUnexposed,
+         "q value" = q_val.ZIKVUnexposed,
+         "q<0.05" = diff_abn.ZIKVUnexposed) %>%
+  mutate(CI=SE*1.96, 
+         color = ifelse(logFC>0, "Infected", "Unexposed")) #%>%
+  #rownames_to_column(var="Taxa")
+
+# write.csv(Galveston_lab_ancom_IvU_sig_results, "Galveston_lab_ancom_IvU_sig_results.csv")
+
+
+#  ---------  ANCOM-BC Unexposed vs Exposed:   -------- #
+
+Galveston_lab_ancom_UvE = ancombc(phyloseq=Galveston_lab_genera_UvE, formula="ZIKV", 
+                        p_adj_method = "bonferroni", 
+          #              zero_cut = 0.90, 
+                        lib_cut = 0, 
+                        group = "ZIKV", 
+                        struc_zero = FALSE, 
+                        neg_lb = FALSE, 
+                        tol = 1e-05, 
+                        max_iter = 100, 
+                        conserve = FALSE, 
+                        alpha = 0.05, 
+                        global = FALSE)
+
+Galveston_lab_ancom_UvE_results = data.frame(Galveston_lab_ancom_UvE$res)
+
+Galveston_lab_ancom_UvE_sig_results = Galveston_lab_ancom_UvE_results %>%
+  filter(diff_abn.ZIKVUnexposed=="TRUE")
+# 18 significant ANCOM results between Infected and Exposed mosquitoes
+
+# Reformat the table for further representation:
+Galveston_lab_ancom_UvE_sig_results = Galveston_lab_ancom_UvE_sig_results %>%
+  select("Taxa" = lfc.taxon,
+         "logFC" = lfc.ZIKVUnexposed, 
+         "SE" = se.ZIKVUnexposed, 
+         "W statistic" = W.ZIKVUnexposed, 
+         "p value" = p_val.ZIKVUnexposed,
+         "q value" = q_val.ZIKVUnexposed,
+         "q<0.05" = diff_abn.ZIKVUnexposed) %>%
+  mutate(CI=SE*1.96, 
+         color = ifelse(logFC>0, "Unexposed", "Exposed")) #%>%
+  #rownames_to_column(var="Taxa")
+
+# write.csv(Galveston_lab_ancom_UvE_sig_results, "Galveston_lab_ancom_UvE_sig_results.csv")
+
+
+
+
+```
+
+
+### Now, the plots
+
+### RGV Lab - ancombc plots - Fig 3D,E
+
+Just IvU and UvE for RGV-lab, there were no statistically significant results for IvE
+
+```{r}
+
+# Plot RGV_ancom_IvU:
+
+#Rename taxa with long names:
+
+RGV_ancom_IvU_sig_results_for_plots <- RGV_ancom_IvU_sig_results
+
+RGV_ancom_IvU_sig_results_for_plots[RGV_ancom_IvU_sig_results_for_plots$Taxa == "Bacteria_Bacteroidetes_Bacteroidia_Bacteroidales_Bacteroidales S24-7 group_uncultured bacterium",]$Taxa <- "Muribaculaceae"
+
+RGV_ancom_IvU_sig_results_for_plots[RGV_ancom_IvU_sig_results_for_plots$Taxa == "Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacteriales_Enterobacteriaceae_Ambiguous_taxa",]$Taxa <- "Enterobacteriaceae"
+
+RGV_ancom_IvU_plot <- ggplot(RGV_ancom_IvU_sig_results_for_plots, aes(y=logFC)) +
+  geom_segment(aes(y=logFC, yend=0, 
+                   x=Taxa, xend=Taxa,
+                   color=color), size=5) + 
+  scale_colour_manual(values = colours) +
+  labs(x="", y = "logFC") + 
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_errorbar(aes(x=Taxa, 
+                    y=logFC, 
+                    ymin=logFC-CI, 
+                    ymax=logFC+CI), width=0.1) +
+  theme_light() + xlab("") + ylab("logFC") + coord_flip() +
+   ylim(-5, 5) +
+   theme(legend.position = "none",
+        plot.title = element_text(colour="#3968b0", size=5, hjust = 1, vjust = -4.5),
+        plot.subtitle = element_text(colour="#b1549c", size=5),
+        plot.caption = element_text(size=7, hjust=0.5, face="bold"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black"),
+        panel.background = element_blank()) +
+  theme(axis.text.y = element_text(face="italic", size=6),
+        axis.title.x = element_text(size=6),
+        axis.text.x = element_text(size=6)) +
+  labs(title = expression("enriched in infected" %->% " "),
+       subtitle = expression(" " %<-% "enriched in unexposed"),
+       caption = "RGV lab - Infected vs Unexposed")
+
+RGV_ancom_IvU_plot
+
+
+# Plot RGV_ancom_UvE:
+
+#Rename taxa with long names:
+
+RGV_ancom_UvE_sig_results_for_plots <- RGV_ancom_UvE_sig_results
+
+RGV_ancom_UvE_sig_results_for_plots[RGV_ancom_UvE_sig_results_for_plots$Taxa == "Bacteria_Bacteroidetes_Bacteroidia_Bacteroidales_Bacteroidales S24-7 group_uncultured bacterium",]$Taxa <- "Muribaculaceae"
+
+RGV_ancom_UvE_plot <- ggplot(RGV_ancom_UvE_sig_results_for_plots, aes(y=logFC)) +
+  geom_segment(aes(y=logFC, yend=0, 
+                   x=Taxa, xend=Taxa,
+                   color=color), size=5) + 
+  scale_colour_manual(values = colours) +
+  labs(x="", y = "logFC") + 
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_errorbar(aes(x=Taxa, 
+                    y=logFC, 
+                    ymin=logFC-CI, 
+                    ymax=logFC+CI), width=0.1) +
+  theme_light() + xlab("") + ylab("logFC") + coord_flip() +
+   ylim(-5, 5) +
+  theme(legend.position = "none",
+        plot.title = element_text(colour="#b1549c", size=5, hjust = 1, vjust = -9),
+        plot.subtitle = element_text(colour="#6f952f", size=5),
+        plot.caption = element_text(size=7, hjust=0.5, face="bold"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black"),
+        panel.background = element_blank()) +
+  theme(axis.text.y = element_text(face="italic", size=6),
+        axis.title.x = element_text(size=6),
+        axis.text.x = element_text(size=6)) +
+  labs(title = expression("enriched in unexposed" %->% " "),
+       subtitle = expression(" " %<-% "enriched in exposed"),
+       caption = "RGV lab - Unexposed vs Exposed")
+
+RGV_ancom_UvE_plot
+
+
+```
+
+
+### Galveston_lab - ancombc plots - Fig3A,B,C
+
+```{r}
+
+# Plot Galveston_lab_ancom_IvE:
+Galveston_lab_ancom_IvE_plot <- ggplot(Galveston_lab_ancom_IvE_sig_results, aes(y=logFC)) +
+  geom_segment(aes(y=logFC, yend=0, 
+                   x=Taxa, xend=Taxa,
+                   color=color), size=5) + 
+  scale_colour_manual(values = colours) +
+  labs(x="", y = "logFC") + 
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_errorbar(aes(x=Taxa, 
+                    y=logFC, 
+                    ymin=logFC-CI, 
+                    ymax=logFC+CI), width=0.1) +
+  theme_light() + xlab("") + ylab("logFC") + coord_flip() +
+   ylim(-5, 5) +
+  theme(legend.position = "none",
+        plot.title = element_text(colour="#3968b0", size=5, hjust = 1, vjust = -4.5),
+        plot.subtitle = element_text(colour="#6f952f", size=5),
+        plot.caption = element_text(size=7, hjust=0.5, face="bold"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black"),
+        panel.background = element_blank()) +
+  theme(axis.text.y = element_text(face="italic", size=6),
+        axis.title.x = element_text(size=6),
+        axis.text.x = element_text(size=6)) +
+  labs(title = expression("enriched in infected" %->% " "),
+       subtitle = expression(" " %<-% "enriched in exposed"),
+       caption = "Galveston Lab - Infected vs Exposed")
+
+Galveston_lab_ancom_IvE_plot
+
+# ('#d6a5cb', '#bcda89', '#7ea0d5')
+
+# Plot Galveston_lab_ancom_IvU:
+
+#Rename long taxa
+
+Galveston_lab_ancom_IvU_sig_results_for_plots <- Galveston_lab_ancom_IvU_sig_results
+
+Galveston_lab_ancom_IvU_sig_results_for_plots[Galveston_lab_ancom_IvU_sig_results_for_plots$Taxa == "Bacteria_Bacteroidetes_Bacteroidia_Bacteroidales_Bacteroidales S24-7 group_uncultured bacterium",]$Taxa <- "Muribaculaceae"
+
+
+Galveston_lab_ancom_IvU_sig_results_for_plots[Galveston_lab_ancom_IvU_sig_results_for_plots$Taxa == "Bacteria_Firmicutes_Clostridia_Clostridiales_Lachnospiraceae_uncultured",]$Taxa <- "Lachnospiraceae"
+
+Galveston_lab_ancom_IvU_plot <- ggplot(Galveston_lab_ancom_IvU_sig_results_for_plots, aes(y=logFC)) +
+  geom_segment(aes(y=logFC, yend=0, 
+                   x=Taxa, xend=Taxa,
+                   color=color), size=5) + 
+  scale_colour_manual(values = colours) +
+  labs(x="", y = "logFC") + 
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_errorbar(aes(x=Taxa, 
+                    y=logFC, 
+                    ymin=logFC-CI, 
+                    ymax=logFC+CI), width=0.1) +
+  theme_light() + xlab("") + ylab("logFC") + coord_flip() +
+   ylim(-5, 5) +
+  theme(legend.position = "none",
+        plot.title = element_text(colour="#3968b0", size=5, hjust = 1, vjust = -4.5),
+        plot.subtitle = element_text(colour="#b1549c", size=5),
+        plot.caption = element_text(size=7, hjust=0.5, face="bold"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black"),
+        panel.background = element_blank()) +
+  theme(axis.text.y = element_text(face="italic", size=6),
+        axis.title.x = element_text(size=6),
+        axis.text.x = element_text(size=6)) +
+  labs(title = expression("enriched in infected" %->% " "),
+       subtitle = expression(" " %<-% "enriched in unexposed"),
+       caption = "Galveston Lab - Infected vs Unexposed")
+
+Galveston_lab_ancom_IvU_plot
+
+
+# Plot Galveston_lab_ancom_UvE:
+
+#Rename long taxa names
+
+Galveston_lab_ancom_UvE_sig_results_for_plots <- Galveston_lab_ancom_UvE_sig_results
+
+Galveston_lab_ancom_UvE_sig_results_for_plots[Galveston_lab_ancom_UvE_sig_results_for_plots$Taxa == "Bacteria_Bacteroidetes_Bacteroidia_Bacteroidales_Bacteroidales S24-7 group_uncultured bacterium",]$Taxa <- "Muribaculaceae"
+
+Galveston_lab_ancom_UvE_sig_results_for_plots[Galveston_lab_ancom_UvE_sig_results_for_plots$Taxa == "Bacteria_Firmicutes_Clostridia_Clostridiales_Lachnospiraceae_uncultured",]$Taxa <- "Lachnospiraceae"
+
+Galveston_lab_ancom_UvE_sig_results_for_plots[Galveston_lab_ancom_UvE_sig_results_for_plots$Taxa == "Bacteria_Firmicutes_Clostridia_Clostridiales_Ruminococcaceae_uncultured",]$Taxa <- "Ruminococcaceae"
+
+Galveston_lab_ancom_UvE_sig_results_for_plots[Galveston_lab_ancom_UvE_sig_results_for_plots$Taxa == "Bacteria_Proteobacteria_Gammaproteobacteria_Enterobacteriales_Enterobacteriaceae_Ambiguous_taxa",]$Taxa <- "Enterobacteriaceae"
+
+Galveston_lab_ancom_UvE_plot <- ggplot(Galveston_lab_ancom_UvE_sig_results_for_plots, aes(y=logFC)) +
+  geom_segment(aes(y=logFC, yend=0, 
+                   x=Taxa, xend=Taxa,
+                   color=color), size=5) + 
+  scale_colour_manual(values = colours) +
+  labs(x="", y = "logFC") + 
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_errorbar(aes(x=Taxa, 
+                    y=logFC, 
+                    ymin=logFC-CI, 
+                    ymax=logFC+CI), width=0.1) +
+  theme_light() + xlab("") + ylab("logFC") + coord_flip() +
+   ylim(-5, 5) +
+  theme(legend.position = "none",
+        plot.title = element_text(colour="#b1549c", size=5, hjust = 1, vjust = -9.5),
+        plot.subtitle = element_text(colour="#6f952f", size=5),
+        plot.caption = element_text(size=7, hjust=0.5, face="bold"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black"),
+        panel.background = element_blank()) +
+  theme(axis.text.y = element_text(face="italic", size=6),
+        axis.title.x = element_text(size=6),
+        axis.text.x = element_text(size=6)) +
+  labs(title = expression("enriched in unexposed" %->% " "),
+       subtitle = expression(" " %<-% "enriched in exposed"),
+       caption = "Galveston lab - Unexposed vs Exposed")
+
+Galveston_lab_ancom_UvE_plot
+
+
+```
+
+Making Figure 3
+
+```{r}
+
+pdf("Figure3.pdf", height=7, width=10)
+
+design <- "#AABBCC#
+           #DDEEFF#"
+
+Galveston_lab_ancom_IvE_plot + Galveston_lab_ancom_UvE_plot + Galveston_lab_ancom_IvU_plot + plot_spacer() + RGV_ancom_UvE_plot + RGV_ancom_IvU_plot + plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(face="bold")) + plot_layout(design=design) 
+
+dev.off()
+
+```
+
+
+
+
+
+
+## Fig 4 - ZIKV infection of field-collected Ae. aegypti mosquitoes and impact of virus on the microbiome load and diversity
+
+Figure 4A was made by Cintia
+
+### Fig 4 B-D - microbiome load in mosquitoes from the 3 field locations, comparing exposed and infected
+
+
+```{r}
+
+##########################################################################################
+############################### FIELD MICROBIOME LOAD ####################################
+##########################################################################################
+
+my_comparisons <- list(c("Exposed", "Infected"))
+
+# prepare data
+
+######################################### AUSTIN #########################################
+
+# Create new metadata containing Austin only:
+austin_metadata = filter(metadata, Location=="Austin")
+
+# Create new OTU table containing id and Austin samples:
+austin_otu = select(otu_mat, c(id, starts_with("Austin")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+austin_otu <- austin_otu %>%
+  tibble::column_to_rownames("id")
+
+austin_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+austin_metadata <- austin_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+austin_otu <- as.matrix(austin_otu)
+austin_tax_mat <- as.matrix(austin_tax_mat)
+
+# Create the phyloseq object:
+austin_OTU = otu_table(austin_otu, taxa_are_rows = TRUE)
+austin_TAX = tax_table(austin_tax_mat)
+austin_metadata = sample_data(austin_metadata)
+
+Austin <- phyloseq(austin_OTU, austin_TAX, austin_metadata)
+
+# Remove samples containing less than 2000 reads:
+Austin_filtered = prune_samples(sample_sums(Austin)>=2000, Austin) # 18 samples were removed (108 to 90 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Austin_filtered = prune_taxa(taxa_sums(Austin_filtered)>0, Austin_filtered) # 1209 OTUs were removed (1443 to 234 OTUs)
+
+
+####################################### GALVESTON ########################################
+
+# Create new metadata containing Austin only:
+galveston_field_metadata = filter(metadata, Location=="Galveston", Type=="Field")
+
+# Create new OTU table containing id and Austin samples:
+galveston_field_otu = select(otu_mat, c(id, starts_with("Galveston") & !contains("Lab")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+galveston_field_otu <- galveston_field_otu %>%
+  tibble::column_to_rownames("id")
+
+galveston_field_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+galveston_field_metadata <- galveston_field_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+galveston_field_otu <- as.matrix(galveston_field_otu)
+galveston_field_tax_mat <- as.matrix(galveston_field_tax_mat)
+
+# Create the phyloseq object:
+galveston_field_OTU = otu_table(galveston_field_otu, taxa_are_rows = TRUE)
+galveston_field_TAX = tax_table(galveston_field_tax_mat)
+galveston_field_metadata = sample_data(galveston_field_metadata)
+
+Galveston_field <- phyloseq(galveston_field_OTU, galveston_field_TAX, galveston_field_metadata)
+
+# Remove samples containing less than 2000 reads:
+Galveston_field_filtered = prune_samples(sample_sums(Galveston_field)>=2000, Galveston_field) # 1 sample was removed (40 to 39 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Galveston_field_filtered = prune_taxa(taxa_sums(Galveston_field_filtered)>0, Galveston_field_filtered) # 1155 OTUs were removed (1443 to 288 OTUs)
+
+
+##################################### BROWNSVILLE ########################################
+
+# Create new metadata containing Brownsville only:
+brownsville_metadata = filter(metadata, Location=="Brownsville")
+
+# Create new OTU table containing id and Austin samples:
+brownsville_otu = select(otu_mat, c(id, starts_with("Brownsville")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+brownsville_otu <- brownsville_otu %>%
+  tibble::column_to_rownames("id")
+
+brownsville_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+brownsville_metadata <- brownsville_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+brownsville_otu <- as.matrix(brownsville_otu)
+brownsville_tax_mat <- as.matrix(brownsville_tax_mat)
+
+# Create the phyloseq object:
+brownsville_OTU = otu_table(brownsville_otu, taxa_are_rows = TRUE)
+brownsville_TAX = tax_table(brownsville_tax_mat)
+brownsville_metadata = sample_data(brownsville_metadata)
+
+Brownsville <- phyloseq(brownsville_OTU, brownsville_TAX, brownsville_metadata)
+
+# Remove samples containing less than 2000 reads:
+Brownsville_filtered = prune_samples(sample_sums(Brownsville)>=2000, Brownsville) # 1 sample was removed (19 to 18 samples)
+
+# Remove OTUs that are not present in at least one sample:
+Brownsville_filtered = prune_taxa(taxa_sums(Brownsville_filtered)>0, Brownsville_filtered) # 1200 OTUs were removed (1443 to 243 OTUs)
+
+
+
+####################################### AUSTIN ###########################################
+
+austin_mb_load_plot = ggplot(subset(field_abundance, Strain=="Austin"),
+                             aes(x=ZIKV, y=Abundance)) +
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'),
+               alpha=0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  scale_y_log10(breaks = c(0, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000), 
+                labels = c("0", "0.01", "0.1", "1", "10", "100", "1000", "10000", "100000"),
+                limits = c(0.001, 1000000),
+                expand = c(0,0.2)) +
+                geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5, 
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Relative abundance (Log10)", title="Microbiome load - Austin") + 
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill="white", colour = "white"),
+        strip.text = element_text(colour="black", size=8)) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     bracket.size = 0.5)
+
+austin_mb_load_plot
+
+
+####################################### GALVESTON ########################################
+
+galveston_mb_load_plot = ggplot(subset(field_abundance, Strain=="Galveston"),
+                                aes(x=ZIKV, y=Abundance)) +
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'),
+               alpha=0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  scale_y_log10(breaks = c(0, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000), 
+                labels = c("0", "0.01", "0.1", "1", "10", "100", "1000", "10000", "100000"),
+                limits = c(0.001, 1000000),
+                expand = c(0,0.2)) +
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5, 
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Relative abundance (Log10)", title="Microbiome load - Galveston") + 
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill="white", colour = "white"),
+        strip.text = element_text(colour="black", size=8)) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(4),
+                     bracket.size = 0.5)
+
+galveston_mb_load_plot
+
+
+#################################### BROWNSVILLE #########################################
+
+brownsville_mb_load_plot = ggplot(subset(field_abundance, Strain=="Brownsville"),
+                                  aes(x=ZIKV, y=Abundance)) +
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'),
+               alpha=0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  scale_y_log10(breaks = c(0, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000), 
+                labels = c("0", "0.01", "0.1", "1", "10", "100", "1000", "10000", "100000"),
+                limits = c(0.001, 1000000),
+                expand = c(0,0.2)) +
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5, 
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Relative abundance (Log10)", title="Microbiome load - Brownsville") + 
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill="white", colour = "white"),
+        strip.text = element_text(colour="black", size=8)) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2),
+                     bracket.size = 0.5)
+
+brownsville_mb_load_plot
+
+
+######################################### ALL ############################################
+
+plot_grid(austin_mb_load_plot,
+          galveston_mb_load_plot,
+          brownsville_mb_load_plot, 
+          labels = c("B", "C", "D"),
+          ncol = 3,
+          nrow = 1,
+          axis = "lrtb", 
+          align = "hv")
+
+
+
+
+```
+
+
+### Fig 4 E-G - alpha diversity of microbiomes in mosquitoes from the 3 field locations, comparing exposed and infected
+
+
+
+```{r}
+
+
+######################################### AUSTIN #########################################
+
+my_comparisons = list(c("Exposed", "Infected"))
+
+austin_diversity_plot = plot_richness(Austin_filtered, 
+                                             measures= "Shannon", 
+                                             x="ZIKV")
+austin_diversity_plot$layers = austin_diversity_plot$layers[-1]
+
+austin_diversity_plot_final = austin_diversity_plot + 
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'), 
+               alpha = 0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5,
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Austin") +
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,4)) +
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2.8),
+                     bracket.size = 0.5)
+
+# austin_diversity_plot_final
+
+
+
+####################################### GALVESTON ########################################
+
+
+galveston_field_diversity_plot = plot_richness(Galveston_field_filtered, 
+                                      measures= "Shannon", 
+                                      x="ZIKV")
+galveston_field_diversity_plot$layers = galveston_field_diversity_plot$layers[-1]
+
+galveston_field_diversity_plot_final = galveston_field_diversity_plot + 
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'), 
+               alpha = 0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5,
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Galveston") +
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,4)) +
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2.8),
+                     bracket.size = 0.5)
+
+# galveston_field_diversity_plot_final
+
+
+
+##################################### BROWNSVILLE ########################################
+
+brownsville_diversity_plot = plot_richness(Brownsville_filtered, 
+                                           measures= "Shannon", 
+                                           x="ZIKV", 
+                                           color="ZIKV",
+                                           title = "Shannon diversity index")
+brownsville_diversity_plot$layers = brownsville_diversity_plot$layers[-1]
+
+brownsville_diversity_plot + 
+  geom_boxplot(aes(fill=ZIKV), alpha = 0.05, show.legend = FALSE) +
+  geom_jitter(width=0.2, color="black") +
+  theme(panel.background = element_blank(),
+        title = element_text(size = 15),
+        strip.text = element_blank(),
+        axis.text.x = element_text(angle=0, size=15, hjust=0.5, colour="black"),
+        axis.title.x = element_blank(),
+        axis.line = element_line(colour="black"),
+        axis.title.y = element_text(size = 15, vjust = 0),
+        axis.text.y = element_text(size = 15, colour="black"))
+
+
+
+brownsville_diversity_plot = plot_richness(Brownsville_filtered, 
+                                               measures= "Shannon", 
+                                               x="ZIKV")
+brownsville_diversity_plot$layers = brownsville_diversity_plot$layers[-1]
+
+brownsville_diversity_plot_final = brownsville_diversity_plot + 
+  geom_boxplot(fill=c('#bcda89', '#7ea0d5'), 
+               alpha = 0.4, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=1.5,
+             aes(color = ZIKV, alpha=1)) + 
+  scale_colour_manual(values = c('#bcda89', '#7ea0d5')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Brownsville") +
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,4)) +
+  scale_x_discrete(labels = c("Exposed", "Infected")) + 
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=4,
+                     label.y = c(2.8),
+                     bracket.size = 0.5)
+
+#brownsville_diversity_plot_final
+
+
+
+############### plots 4 E,F,G #######################################
+
+plot_grid(austin_diversity_plot_final,
+          galveston_field_diversity_plot_final,
+          brownsville_diversity_plot_final, 
+          labels = c("E", "F", "G"),
+          ncol = 3,
+          nrow = 1,
+          axis = "lrtb", 
+          align = "hv")
+
+
+
+```
+
+
+### Fig 4 H-J - beta diversity of microbiomes in mosquitoes from the 3 field locations, comparing exposed and infected
+
+
+
+```{r}
+
+##########################################################################################
+#################################### BETA DIVERSITY ######################################
+##########################################################################################
+
+
+######################################### AUSTIN #########################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+austin_bray_dist = phyloseq::distance(Austin_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+austin_ordination = ordinate(Austin_filtered, method="NMDS", distance=austin_bray_dist)
+
+sample_data(Austin_filtered)$ZIKV <- factor(sample_data(Austin_filtered)$ZIKV, 
+                                         levels = c("Unexposed", "Exposed", "Infected"))
+
+austin_beta_diversity_plot = plot_ordination(Austin_filtered, 
+                                           austin_ordination, 
+                                           color="ZIKV") 
+
+austin_beta_diversity_plot <- austin_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = colours)+
+  scale_color_manual(values = colours)+
+  ggtitle("Beta diversity - Austin")+
+  annotate("text", x=1.1, y=-1.8, color="black", size =3.5, label="p = 0.05") +
+  theme_bw()
+austin_beta_diversity_plot$layers <- austin_beta_diversity_plot$layers[-1]
+
+
+
+# Run Adonis test
+
+austin_metadata <- as.data.frame(as.matrix(sample_data(Austin_filtered))) 
+
+adonis_result <- adonis2(
+  austin_bray_dist ~ ZIKV, 
+  data = austin_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.05 so there are no differences in composition between the three groups, there would be no pairwise testing here anyway becuase there are only 2 factors to the treatment
+
+
+
+
+####################################### GALVESTON ########################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+galveston_field_bray_dist = phyloseq::distance(Galveston_field_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+galveston_field_ordination = ordinate(Galveston_field_filtered, method="NMDS", distance=galveston_field_bray_dist)
+
+sample_data(Galveston_field_filtered)$ZIKV <- factor(sample_data(Galveston_field_filtered)$ZIKV, 
+                                         levels = c("Unexposed", "Exposed", "Infected"))
+
+Galveston_field_beta_diversity_plot = plot_ordination(Galveston_field_filtered, 
+                                           galveston_field_ordination, 
+                                           color="ZIKV") 
+
+Galveston_field_beta_diversity_plot <- Galveston_field_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = colours)+
+  scale_color_manual(values = colours)+
+  ggtitle("Beta diversity - Galveston")+
+  annotate("text", x=1.1, y=-1.8, color="black", size =3.5, label="p = 0.376") +
+  theme_bw()
+Galveston_field_beta_diversity_plot$layers <- Galveston_field_beta_diversity_plot$layers[-1]
+
+
+# Run Adonis test
+
+Galveston_field_metadata <- as.data.frame(as.matrix(sample_data(Galveston_field_filtered))) 
+
+adonis_result <- adonis2(
+  galveston_field_bray_dist ~ ZIKV, 
+  data = Galveston_field_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.376 so there are no differences in composition between the three groups, 
+
+
+
+##################################### BROWNSVILLE ########################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+brownsville_bray_dist = phyloseq::distance(Brownsville_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+brownsville_ordination = ordinate(Brownsville_filtered, method="NMDS", distance=brownsville_bray_dist)
+
+sample_data(Brownsville_filtered)$ZIKV <- factor(sample_data(Brownsville_filtered)$ZIKV, 
+                                         levels = c("Unexposed", "Exposed", "Infected"))
+
+brownsville_beta_diversity_plot = plot_ordination(Brownsville_filtered, 
+                                           brownsville_ordination, 
+                                           color="ZIKV") 
+
+brownsville_beta_diversity_plot <- brownsville_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = ZIKV))+
+  scale_fill_manual(values = colours)+
+  scale_color_manual(values = colours)+
+  ggtitle("Beta diversity - Brownsville")+
+  annotate("text", x=1.1, y=-1.8, color="black", size =3.5, label="p = 0.828") +
+  theme_bw()
+brownsville_beta_diversity_plot$layers <- brownsville_beta_diversity_plot$layers[-1]
+
+
+
+# Run Adonis test
+
+brownsville_metadata <- as.data.frame(as.matrix(sample_data(Brownsville_filtered))) 
+
+adonis_result <- adonis2(
+  brownsville_bray_dist ~ ZIKV, 
+  data = brownsville_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.828 
+
+
+
+plot_grid(austin_beta_diversity_plot,
+          Galveston_field_beta_diversity_plot,
+          brownsville_beta_diversity_plot,
+          labels = c("AUTO"),
+          nrow = 1,
+          ncol = 3,
+          axis = "lrtb", 
+          align = "hv")
+
+```
+
+
+## Fig 4 all
+
+```{r}
+
+################################### combined fig ######################################
+
+
+#pdf("fig2_new_colours.pdf", width=6, height=9)
+figure4 <- ggpubr::ggarrange(austin_mb_load_plot,
+          galveston_mb_load_plot,
+          brownsville_mb_load_plot,
+          austin_diversity_plot_final,
+          galveston_field_diversity_plot_final,
+          brownsville_diversity_plot_final,
+          austin_beta_diversity_plot,
+          Galveston_field_beta_diversity_plot,
+          brownsville_beta_diversity_plot,
+          labels = c("B", "C", "D", "E", "F", "G", "H", "I", "J"), 
+          widths = c(1, 1),
+          ncol = 3, nrow = 3, common.legend = TRUE, legend="bottom")
+figure4
+#dev.off()
+
+
+
+
+
+```
+
+```{r}
+
+Fig4A <- readPNG("manuscript diagram-temp3.png", native=T)
+
+pdf("Figure4.pdf", width = 7, height = 12)
+wrap_elements(Fig4A) / figure4 + plot_annotation(title = 'A', theme = theme(plot.title = element_text(face="bold"))) + plot_layout(heights = c(1, 4))
+dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+******************************************
+
+# Supplementary Figs
+
+
+## Fig S1 - rarefaction plots, facetted by sample type, coloured according to ZIKV infection status
+
+
+
+```{r, warning=FALSE, message=FALSE}
+
+
+
+# Set first column of the metadata, OTU and taxonomy tables as row names and convert to matrices:
+
+otu_all <- otu_mat %>%
+  tibble::column_to_rownames("id") %>%
+  as.matrix()
+
+tax_all <- tax_mat %>%
+  tibble::column_to_rownames("id") %>%
+  as.matrix()
+
+metadata_all <- metadata %>%
+  tibble::column_to_rownames("id_sample") 
+
+# add new column for facetting
+metadata_all$sampletype <- paste(metadata_all$Type, metadata_all$Location, sep = "-")
+
+
+# Create the phyloseq object:
+OTU = otu_table(otu_all, taxa_are_rows = TRUE)
+TAX = tax_table(tax_all)
+meta = sample_data(metadata_all)
+
+ps <- phyloseq(OTU, TAX, meta)
+
+
+
+# Remove samples containing less than 2000 reads (these were removed from other analyses:
+ps2000 = prune_samples(sample_sums(ps)>=2000, ps) 
+
+
+
+
+
+# plot
+
+p <- ggrare(ps2000, step = 10, color = "ZIKV", label = NULL, se = FALSE) + 
+   theme_bw()
+
+
+figS1 <- p + theme(panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), legend.position = "bottom") + 
+            facet_wrap(~sampletype)+
+          scale_color_manual(values=c(colours))
+
+
+figS1
+
+
+```
+
+
+
+## Fig S2 - Comparison of microbiome diversity and composition between the laboratory-reared line originally derived from Galveston and mosquitoes freshly collected from field traps in Galveston, grouped by exposed and infected individuals
+
+
+
+```{r}
+
+#################################################################################
+################################EXPOSED##########################################
+#################################################################################
+# prepare the data
+
+# Create new metadata containing Infected and Exposed only:
+fieldlab_exp_metadata = filter(metadata, ZIKV=="Exposed", Location=="Galveston")
+
+# Create new OTU table containing id and all samples except bloodfed ones:
+fieldlab_exp_otu = select(otu_mat, c(id, starts_with("Galveston") & !contains("Mock")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+fieldlab_exp_otu <- fieldlab_exp_otu %>%
+  tibble::column_to_rownames("id")
+
+fieldlab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+fieldlab_exp_metadata <- fieldlab_exp_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+fieldlab_exp_otu <- as.matrix(fieldlab_exp_otu)
+fieldlab_tax_mat <- as.matrix(fieldlab_tax_mat)
+
+# Create the phyloseq object:
+fieldlab_exp_OTU = otu_table(fieldlab_exp_otu, taxa_are_rows = TRUE)
+fieldlab_TAX = tax_table(fieldlab_tax_mat)
+fieldlab_exp_metadata = sample_data(fieldlab_exp_metadata)
+
+fieldlab_exp <- phyloseq(fieldlab_exp_OTU, fieldlab_TAX, fieldlab_exp_metadata)
+
+# Remove samples containing less than 2000 reads:
+fieldlab_exp_filtered = prune_samples(sample_sums(fieldlab_exp)>=2000, fieldlab_exp) 
+
+# Remove OTUs that are not present in at least one sample:
+fieldlab_exp_filtered = prune_taxa(taxa_sums(fieldlab_exp_filtered)>0, fieldlab_exp_filtered) 
+
+
+
+#########################################################################################
+################################### ALPHA DIVERSITY #####################################
+#########################################################################################
+
+fieldlab_exp_diversity_plot = plot_richness(fieldlab_exp_filtered, 
+                                        measures= "Shannon", 
+                                        x="Type")
+
+fieldlab_exp_diversity_plot$layers = fieldlab_exp_diversity_plot$layers[-1]
+
+my_comparisons <- list( c("Field", "Lab"))
+
+fieldlab_exp_diversity_plot_final = fieldlab_exp_diversity_plot +
+  geom_boxplot(fill=c('aquamarine4', 'black'), 
+               alpha = 0.2, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=3,
+             aes(color = Type, alpha=0.5)) + 
+  scale_colour_manual(values = c('aquamarine4', 'black')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Exposed") + 
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,3)) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=5,
+                     bracket.size = 0.5)
+
+# fieldlab_exp_diversity_plot_final
+
+
+## Significant difference between lab and field.
+
+
+
+#########################################################################################
+#################################### BETA DIVERSITY #####################################
+#########################################################################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+fieldlab_exp_bray_dist = phyloseq::distance(fieldlab_exp_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+fieldlab_exp_ordination = ordinate(fieldlab_exp_filtered, method="NMDS", distance=fieldlab_exp_bray_dist)
+
+
+
+fieldlab_exp_beta_diversity_plot = plot_ordination(fieldlab_exp_filtered, 
+                                           fieldlab_exp_ordination, 
+                                           color="Type") 
+
+fieldlab_exp_beta_diversity_plot <- fieldlab_exp_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = Type)) +
+  scale_fill_manual(values = c('aquamarine4', 'black')) +
+  scale_color_manual(values = c('aquamarine4', 'black')) +
+  ggtitle("Beta diversity - Exposed")+
+  annotate("text", x=2.2, y=-1.5, color="black", size =3.5, label="p = 0.001") + # from adonis
+  theme_bw()
+fieldlab_exp_beta_diversity_plot$layers <- fieldlab_exp_beta_diversity_plot$layers[-1]
+
+
+
+
+# Run Adonis test
+
+fieldlab_exp_metadata <- as.data.frame(as.matrix(sample_data(fieldlab_exp_filtered))) 
+
+adonis_result <- adonis2(
+  fieldlab_exp_bray_dist ~ Type, 
+  data = fieldlab_exp_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.001 signif
+
+
+
+
+#################################################################################
+################################INFECTED#########################################
+#################################################################################
+# prep the data
+
+# Create new metadata containing Infected and Exposed only:
+fieldlab_inf_metadata = filter(metadata, ZIKV=="Infected", Location=="Galveston")
+
+# Create new OTU table containing id and all samples except bloodfed ones:
+fieldlab_inf_otu = select(otu_mat, c(id, starts_with("Galveston") & !contains("Mock")))
+
+# Set first column of the metadata, OTU and taxonomy tables as row names:
+fieldlab_inf_otu <- fieldlab_inf_otu %>%
+  tibble::column_to_rownames("id")
+
+fieldlab_tax_mat <- tax_mat %>%
+  tibble::column_to_rownames("id")
+
+fieldlab_inf_metadata <- fieldlab_inf_metadata %>%
+  tibble::column_to_rownames("id_sample")
+
+# Transform the OTU and taxonomy tables to matrices:
+fieldlab_inf_otu <- as.matrix(fieldlab_inf_otu)
+fieldlab_tax_mat <- as.matrix(fieldlab_tax_mat)
+
+# Create the phyloseq object:
+fieldlab_inf_OTU = otu_table(fieldlab_inf_otu, taxa_are_rows = TRUE)
+fieldlab_TAX = tax_table(fieldlab_tax_mat)
+fieldlab_inf_metadata = sample_data(fieldlab_inf_metadata)
+
+fieldlab_inf <- phyloseq(fieldlab_inf_OTU, fieldlab_TAX, fieldlab_inf_metadata)
+
+# Remove samples containing less than 2000 reads:
+fieldlab_inf_filtered = prune_samples(sample_sums(fieldlab_inf)>=2000, fieldlab_inf) 
+
+# Remove OTUs that are not present in at least one sample:
+fieldlab_inf_filtered = prune_taxa(taxa_sums(fieldlab_inf_filtered)>0, fieldlab_inf_filtered) 
+
+
+
+#########################################################################################
+################################### ALPHA DIVERSITY #####################################
+#########################################################################################
+
+
+
+fieldlab_inf_diversity_plot = plot_richness(fieldlab_inf_filtered, 
+                                            measures= "Shannon", 
+                                            x="Type")
+
+fieldlab_inf_diversity_plot$layers = fieldlab_inf_diversity_plot$layers[-1]
+
+my_comparisons <- list( c("Field", "Lab"))
+
+fieldlab_inf_diversity_plot_final = fieldlab_inf_diversity_plot +
+  geom_boxplot(fill=c('aquamarine4', 'black'), 
+               alpha = 0.2, show.legend = FALSE, outlier.shape = NA) +
+  stat_boxplot(geom='errorbar', linetype=1, width=0.2) +
+  theme_linedraw() + 
+  geom_point(position = position_jitterdodge(), show.legend = FALSE, size=3,
+             aes(color = Type, alpha=0.5)) + 
+  scale_colour_manual(values = c('aquamarine4', 'black')) +
+  labs(x="", y = "Shannon diversity index", title = "Alpha diversity - Infected") + 
+  scale_y_continuous(expand = c(0,0.2), limits = c(0,3)) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank()) +
+  stat_compare_means(method="wilcox.test", label= "p.signif", 
+                     comparisons = my_comparisons, size=5,
+                     label.y = 2.5,
+                     bracket.size = 0.5)
+
+# fieldlab_inf_diversity_plot_final
+
+
+
+
+
+#########################################################################################
+#################################### BETA DIVERSITY #####################################
+#########################################################################################
+
+# Plot beta-diversity of the phyloseq object according to treatment:
+fieldlab_inf_bray_dist = phyloseq::distance(fieldlab_inf_filtered, method="bray") # This calculates the Bray-Curtis dissimilarity distance
+fieldlab_inf_ordination = ordinate(fieldlab_inf_filtered, method="NMDS", distance=fieldlab_inf_bray_dist)
+
+
+
+fieldlab_inf_beta_diversity_plot = plot_ordination(fieldlab_inf_filtered, 
+                                           fieldlab_inf_ordination, 
+                                           color="Type") 
+
+fieldlab_inf_beta_diversity_plot <- fieldlab_inf_beta_diversity_plot +
+  geom_point(size=2, alpha=0.75)+
+  stat_ellipse(geom = "polygon", alpha = 0.0, aes(fill = Type)) +
+  scale_fill_manual(values = c('aquamarine4', 'black')) +
+  scale_color_manual(values = c('aquamarine4', 'black')) +
+  ggtitle("Beta diversity - Infected")+
+  annotate("text", x=3, y=-1.8, color="black", size =3.5, label="p = 0.001") + # from adonis
+  theme_bw()
+fieldlab_inf_beta_diversity_plot$layers <- fieldlab_inf_beta_diversity_plot$layers[-1]
+
+
+
+# Run Adonis test
+
+fieldlab_inf_metadata <- as.data.frame(as.matrix(sample_data(fieldlab_inf_filtered))) 
+
+adonis_result <- adonis2(
+  fieldlab_inf_bray_dist ~ Type, 
+  data = fieldlab_inf_metadata,
+  permutations = 999,
+  method = "bray"
+)
+
+# View the results
+print(adonis_result)
+# p=0.001 signif
+
+
+
+
+
+
+
+#########################################################################################
+################################### FIGURE S2 #####################################
+#########################################################################################
+
+
+
+#pdf("figS2.pdf", width=6, height=6)
+figureS2 <- ggpubr::ggarrange(fieldlab_exp_diversity_plot_final,
+          fieldlab_inf_diversity_plot_final,
+          fieldlab_exp_beta_diversity_plot,
+          fieldlab_inf_beta_diversity_plot,
+          labels = c("A", "B", "C", "D"), 
+          widths = c(1, 1),
+          ncol = 2, nrow = 2, common.legend = TRUE, legend="bottom")
+figureS2
+#dev.off()
+
+
+
+
+
+
+
+```
+
+
+
+## Fig Supp S3 - Impact of ZIKV on the relative abundance of microbial taxa in field-collected Ae. aegypti mosquitoes
+
+
+```{r}
+
+######################################### AUSTIN #########################################
+
+# Classify the taxa that represent less than 0.1 % of the reads and plot the relative abundance of OTUs:
+phy_austin = transform_sample_counts(Austin_filtered, function(x) x/sum(x)) # Phyloseq object with abundance in percentage
+glom_austin = tax_glom(phy_austin, taxrank = "Family")                      # Agglomerate Taxa by Family
+dat_austin = psmelt(glom_austin)                                            # Create data frame from phyloseq object glom
+dat_austin$Family = as.character(dat_austin$Family)                         # Convert Family to a character vector
+
+medians_austin = ddply(dat_austin, ~Family, function(x) c(median=median(x$Abundance))) # Group dataframe by Family and calculate median relative abundance
+Others_austin = medians_austin[medians_austin$median<=0.001,]$Family                                 # Find Families whose relative abundance is less than 0.1%
+dat_austin[dat_austin$Family %in% Others_austin,]$Family = "Others"                           # Rename the families whose abundance is less than 0.1% to "Others"
+
+austin_abundance = ggplot(dat_austin, aes(x=sample, y=Abundance, fill=Family)) + 
+  geom_bar (stat="identity", position="stack") +
+  scale_fill_manual(values = c('mediumseagreen', 'mediumslateblue', 'mediumvioletred',
+                                 'plum','lightgoldenrod2','lightsalmon')) +
+  facet_grid(.~ZIKV, scales="free", switch="x") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.title.y = element_text(size =12),
+        panel.border = element_blank(), 
+        panel.grid=element_blank(),
+        panel.background = element_blank(),
+        strip.text = element_text(size=12),
+        strip.background = element_blank(),
+        legend.position = "none",
+        plot.title = element_text(colour="black", size=15, face="bold", hjust = 0.5)) +
+  labs(title="Austin", y="Percentage", x="")
+
+austin_abundance
+
+####################################### GALVESTON ########################################
+
+# Classify the taxa that represent less than 0.5 % of the reads and plot the relative abundance of OTUs:
+phy_galveston_field = transform_sample_counts(Galveston_field_filtered, function(x) x/sum(x)) # Phyloseq object with abundance in percentage
+glom_galveston_field = tax_glom(phy_galveston_field, taxrank = "Family")                      # Agglomerate Taxa by Family
+dat_galveston_field = psmelt(glom_galveston_field)                                            # Create data frame from phyloseq object glom
+dat_galveston_field$Family = as.character(dat_galveston_field$Family)                         # Convert Family to a character vector
+
+medians_galveston_field = ddply(dat_galveston_field, ~Family, function(x) c(median=median(x$Abundance))) # Group dataframe by Family and calculate median relative abundance
+Others_galveston_field = medians_galveston_field[medians_galveston_field$median<=0.001,]$Family                                 # Find Families whose relative abundance is less than 0.1%
+dat_galveston_field[dat_galveston_field$Family %in% Others_galveston_field,]$Family = "Others"                           # Rename the families whose abundance is less than 0.1% to "Others"
+
+galveston_abundance = ggplot(dat_galveston_field, aes(x=sample, y=Abundance, fill=Family)) + 
+  geom_bar (stat="identity", position="stack") +
+  scale_fill_manual(values = c('mediumseagreen', 'mediumslateblue', 'deeppink4', 'mediumvioletred', 
+                               'plum', 'lightgoldenrod2', 'darkolivegreen3', 'lightsalmon')) +
+  facet_grid(.~ZIKV, scales="free", switch="x") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.title.y = element_text(size =12),
+        panel.border = element_blank(), 
+        panel.grid=element_blank(),
+        panel.background = element_blank(),
+        strip.text = element_text(size=12),
+        strip.background = element_blank(),
+        legend.position = "none",
+        plot.title = element_text(colour="black", size=15, face = "bold", hjust = 0.5)) +
+  labs(title="Galveston", y="Percentage", x="")
+
+galveston_abundance
+
+##################################### BROWNSVILLE ########################################
+
+# Classify the taxa that represent less than 0.5 % of the reads and plot the relative abundance of OTUs:
+phy_brownsville = transform_sample_counts(Brownsville_filtered, function(x) x/sum(x)) # Phyloseq object with abundance in percentage
+glom_brownsville = tax_glom(phy_brownsville, taxrank = "Family")                      # Agglomerate Taxa by Family
+dat_brownsville = psmelt(glom_brownsville)                                            # Create data frame from phyloseq object glom
+dat_brownsville$Family = as.character(dat_brownsville$Family)                         # Convert Family to a character vector
+
+medians_brownsville = ddply(dat_brownsville, ~Family, function(x) c(median=median(x$Abundance))) # Group dataframe by Family and calculate median relative abundance
+Others_brownsville = medians_brownsville[medians_brownsville$median<=0.001,]$Family                                 # Find Families whose relative abundance is less than 0.1%
+dat_brownsville[dat_brownsville$Family %in% Others_brownsville,]$Family = "Others"                           # Rename the families whose abundance is less than 0.1% to "Others"
+
+brownsville_abundance = ggplot(dat_brownsville, aes(x=sample, y=Abundance, fill=Family)) + 
+  geom_bar (stat="identity", position="stack") +
+  scale_fill_manual(values = c('mediumseagreen', 'mediumslateblue', 'deeppink4', 'mediumvioletred', 
+                               'plum', 'lightgoldenrod2', 'lightsalmon')) +
+  facet_grid(.~ZIKV, scales="free", switch="x") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.title.y = element_text(size =12),
+        panel.border = element_blank(), 
+        panel.grid=element_blank(),
+        panel.background = element_blank(),
+        strip.text = element_text(size=12),
+        strip.background = element_blank(),
+        legend.position = "none",
+        plot.title = element_text(colour="black", size=15, face = "bold", hjust = 0.5)) +
+  labs(title="Brownsville", y="Percentage", x="")
+
+brownsville_abundance
+
+################################### FIGURE S3 (ALL) ######################################
+
+legend_S3 = get_legend(galveston_abundance + 
+                      theme(legend.position="right") + 
+                      theme(legend.title = element_text(size=14, face="bold")) +
+                      theme(legend.text = element_text(size=14)))
+
+FigS3 = plot_grid(austin_abundance,
+          galveston_abundance,
+          brownsville_abundance,
+          labels = c("A", "B", "C"),
+          nrow = 3,
+          ncol = 1,
+          axis = "lr", 
+          align = "hv")
+
+
+FigS3
+
+```
+
+
+
+
+
+
